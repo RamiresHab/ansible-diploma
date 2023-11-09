@@ -1,0 +1,180 @@
+---
+- name: Disable swap
+  shell: swapoff -a
+
+- name: Turn off swap in fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^ ( [^#].?\\sswap\\s+sw\\s+.*)$'
+    replace: '# \\1'
+
+- name: Install gnupg
+  apt:
+    name:
+      - gnupg
+      - git
+    state: present
+    update_cache: yes
+
+- name: Creates directory keyrings
+  file:
+    path: /etc/apt/keyrings/
+    state: directory
+    mode: 0775
+
+- name: Check docker GPG key exist
+  stat:
+    path: /etc/apt/keyrings/docker.gpg
+  register: docker_key_file
+
+- name: Download docker GPG key
+  shell: >
+    curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  when: not docker_key_file.stat.exists
+
+- name: Make source list docker
+  shell: >
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" |
+    tee /etc/apt/sources.list.d/docker.list > /dev/null
+  when: not docker_key_file.stat.exists
+
+- name: Install packages docker
+  apt:
+    name: containerd.io
+    state: present
+    update_cache: yes
+
+- name: Copy config containerd
+  copy:
+    src: config.toml
+    dest: /etc/containerd/
+    remote_src: no
+    mode: 0644
+    owner: root
+    group: root
+
+- name: Restart containerd service
+  systemd:
+    name: containerd
+    enabled: yes
+    state: restarted
+
+- name: Create directory
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Check k8s GPG key exist
+  stat:
+    path: /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+  register: k8s_key_file
+
+- name: Download k8s GPG key
+  shell: >
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /etc/apt/keyrings/kubernetes-archive-keyring.gpg
+  when: not k8s_key_file.stat.exists
+
+- name: Make source list k8s
+  shell: >
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main' | tee /etc/apt/sources.list.d/kubernetes.list
+  when: not k8s_key_file.stat.exists
+
+- name: Install packages k8s
+  apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: yes
+
+- name: Hold kubelet, kubeadm, and kubectl packages
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Load overlay and br_netfilter modules
+  shell: "modprobe {{ item }}"
+  loop:
+    - "overlay"
+    - "br_netfilter"
+
+- name: Apply sysctl settings
+  sysctl:
+    name: "{{ item }}"
+    value: 1
+  loop:
+    - "net.bridge.bridge-nf-call-iptables"
+    - "net.ipv4.ip_forward"
+
+- name: Masters settings
+  block:
+    - name: Init master
+      shell: kubeadm init --pod-network-cidr=10.244.0.0/16
+      ignore_errors: true
+
+    - name: Get join command
+      shell: kubeadm token create --print-join-command
+      register: join_command_raw
+
+    - name: Open ports on masters
+      iptables:
+        action: insert
+        rule_num: 1
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+      loop:
+        - "6443"
+        - "2379:2380"
+        - "10250:10252"
+
+    - name: Create .kube
+      file:
+        path: /home/{{ ansible_user }}/.kube
+        state: directory
+        owner: "{{ ansible_user }}"
+
+    - name: Copy .kube/config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/{{ ansible_user }}/.kube/config
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+        
+    - name: Install CNI
+      shell: kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+  when: "'masters' in group_names"
+
+- name: Workers Settings
+  block:
+    - name: Open ports on workers
+      iptables:
+        action: insert
+        rule_num: 1
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+      loop:
+        - "10250"
+        - "30000:32767"
+
+    - name: Init workers
+      shell: "{{ hostvars[groups['masters'].0].join_command_raw.stdout }}"
+      ignore_errors: true
+  when: "'workers' in group_names"
+
+- name: Install iptables-persistent
+  package:
+    name: iptables-persistent
+    state: present
+
+- name: Save firewall rule
+  shell: netfilter-persistent save

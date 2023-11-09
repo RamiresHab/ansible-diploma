@@ -1,0 +1,9 @@
+---
+- name: Install k8s from kubeadm
+  hosts: "all"
+  become: true
+  roles:
+    - { role: install_kubeadm, tags: [install_kubeadm] }
+    - { role: install_prometheus, tags: [install_prometheus] }
+    - { role: install_app, tags: [install_app] }
+    - { role: install_runner, tags: [install_runner] }

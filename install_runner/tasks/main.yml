@@ -1,0 +1,28 @@
+---
+- name: Install docker
+  ansible.builtin.shell: |
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+  when: "'masters' in group_names"
+
+- name: Install gitlab-runner
+  ansible.builtin.shell: |
+    curl -LJO "https://gitlab-runner-downloads.s3.amazonaws.com/latest/deb/gitlab-runner_amd64.deb"
+    dpkg -i gitlab-runner_amd64.deb
+    usermod -a -G docker gitlab-runner
+  when: "'masters' in group_names"
+
+- name: Create .kube
+  file:
+    path: /home/gitlab-runner/.kube
+    state: directory
+    owner: gitlab-runner
+  when: "'masters' in group_names"
+
+- name: Copy .kube/config
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/gitlab-runner/.kube/config
+    remote_src: yes
+    owner: gitlab-runner
+  when: "'masters' in group_names"

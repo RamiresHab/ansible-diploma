@@ -1,0 +1,36 @@
+---
+- name: git clone kube-prometheus
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  ansible.builtin.git:
+    repo: "https://github.com/prometheus-operator/kube-prometheus.git"
+    dest: "/root/kube-prometheus"
+  when: "'masters' in group_names"
+
+- name: Install kube-prometheus
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  ansible.builtin.shell: |
+    kubectl apply --server-side -f /root/kube-prometheus/manifests/setup
+    kubectl wait \
+      --for condition=Established \
+      --all CustomResourceDefinition \
+      --namespace=monitoring
+    kubectl apply -f /root/kube-prometheus/manifests/
+  when: "'masters' in group_names"
+ 
+- name: Copy config containerd
+  copy:
+    src: monitoring_service.yaml
+    dest: /root/
+    remote_src: no
+    mode: 0644
+    owner: root
+    group: root
+  when: "'masters' in group_names"
+
+- name: Install ingress config
+  environment:
+    KUBECONFIG: "/etc/kubernetes/admin.conf"
+  shell: kubectl apply -f /root/monitoring_service.yaml
+  when: "'masters' in group_names"
