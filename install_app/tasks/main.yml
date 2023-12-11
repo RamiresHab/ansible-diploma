@@ -7,10 +7,8 @@
     mode: 0644
     owner: root
     group: root
-  when: "'masters' in group_names"
 
 - name: Install app
   environment:
     KUBECONFIG: "/etc/kubernetes/admin.conf"
   shell: kubectl apply -f /root/diploma_app_deployment.yaml
-  when: "'masters' in group_names"

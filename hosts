@@ -1,9 +1,9 @@
 [masters]
-master1 ansible_host=158.160.71.222 ansible_user=ro.khabibullin
+master1 ansible_host=51.250.17.62 ansible_user=ro.khabibullin
 
 [workers]
-worker1 ansible_host=158.160.77.12 ansible_user=ro.khabibullin
-worker2 ansible_host=51.250.32.47 ansible_user=ro.khabibullin
+worker1 ansible_host=51.250.27.139 ansible_user=ro.khabibullin
+worker2 ansible_host=51.250.42.89 ansible_user=ro.khabibullin
 
 [all:vars]
 ansible_python_interpreter=/usr/bin/python3

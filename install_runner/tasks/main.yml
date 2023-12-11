@@ -1,23 +1,66 @@
 ---
-- name: Install docker
-  ansible.builtin.shell: |
-    curl -fsSL https://get.docker.com -o get-docker.sh
-    sudo sh get-docker.sh
-  when: "'masters' in group_names"
+- name: install Docker
+  block:
+    - name: Install apt-transport-https
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+          - gnupg
+        state: latest
+        update_cache: true
 
-- name: Install gitlab-runner
-  ansible.builtin.shell: |
-    curl -LJO "https://gitlab-runner-downloads.s3.amazonaws.com/latest/deb/gitlab-runner_amd64.deb"
-    dpkg -i gitlab-runner_amd64.deb
-    usermod -a -G docker gitlab-runner
-  when: "'masters' in group_names"
+    - name: Add signing key
+      ansible.builtin.apt_key:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        state: present
+
+    - name: Add repository into sources list
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ ansible_architecture }}] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+        state: present
+        filename: docker
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: latest
+        update_cache: true
+
+- name: install runner
+  block:
+    - name: Check if gitlab-runner is installed
+      shell: dpkg-query -W gitlab-runner
+      register: my_package_check_deb
+      failed_when: my_package_check_deb.rc > 1
+      changed_when: my_package_check_deb.rc == 1
+
+    - name: Download gitlab-runner
+      get_url: 
+        url="https://gitlab-runner-downloads.s3.amazonaws.com/latest/deb/gitlab-runner_amd64.deb"
+        dest="/home/{{ ansible_env.USER }}/Downloads/gitlab-runner_amd64.deb"
+      when: my_package_check_deb.rc == 1
+
+    - name: Install gitlab-runner
+      apt: 
+        deb: "/home/{{ ansible_env.USER }}/Downloads/gitlab-runner_amd64.deb"
+        sudo: true
+      when: my_package_check_deb.rc == 1
+
+- name: Usermod docker gitlab-runner
+  ansible.builtin.user:
+    name: gitlab-runner
+    group: docker
 
 - name: Create .kube
   file:
     path: /home/gitlab-runner/.kube
     state: directory
     owner: gitlab-runner
-  when: "'masters' in group_names"
 
 - name: Copy .kube/config
   ansible.builtin.copy:
@@ -25,4 +68,3 @@
     dest: /home/gitlab-runner/.kube/config
     remote_src: yes
     owner: gitlab-runner
-  when: "'masters' in group_names"

@@ -4,6 +4,21 @@
   become: true
   roles:
     - { role: install_kubeadm, tags: [install_kubeadm] }
+
+- name: Install Prometheus
+  hosts: "masters"
+  become: true
+  roles:
     - { role: install_prometheus, tags: [install_prometheus] }
+
+- name: Install App
+  hosts: "masters"
+  become: true
+  roles:
     - { role: install_app, tags: [install_app] }
+
+- name: Install runner
+  hosts: "masters"
+  become: true
+  roles:
     - { role: install_runner, tags: [install_runner] }
